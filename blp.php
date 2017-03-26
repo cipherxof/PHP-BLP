@@ -8,27 +8,27 @@ require_once __DIR__ . '/blp.reader.php';
 class BLPImage
 {
 
-	private $filename, $file, $filesize, $stream;
-	private $compression, $flags, $width, $height, $type, $mipmapOffset, $mipmapSize;
-	private $image, $imageData;
+    private $filename, $file, $filesize, $stream;
+    private $compression, $flags, $width, $height, $type, $mipmapOffset, $mipmapSize;
+    private $image, $imageData;
 
-	function __construct($path)
-	{
-		if (!file_exists($path))
-		{
-			throw new Exception('File doesn\'t exist.');
-		}
+    function __construct($path)
+    {
+        if (!file_exists($path))
+        {
+            throw new Exception('File doesn\'t exist.');
+        }
 
-		$this->filename = $path;
-		$this->filesize = filesize($path);
-		$this->file = fopen($path, 'rb');
-		$this->stream = new BLPReader($this->file);
+        $this->filename = $path;
+        $this->filesize = filesize($path);
+        $this->file = fopen($path, 'rb');
+        $this->stream = new BLPReader($this->file);
 
-		if (!$this->parseHeader())
-		{
-			throw new Exception('Invalid image header.');
-		}
-	}
+        if (!$this->parseHeader())
+        {
+            throw new Exception('Invalid image header.');
+        }
+    }
 
     function __destruct() 
     {   
@@ -43,159 +43,159 @@ class BLPImage
 
     function image()
     {
-		return $this->image;
+        return $this->image;
     }
 
-	private function parseHeader()
-	{
-		$valid_header = false;
+    private function parseHeader()
+    {
+        $valid_header = false;
 
-		$this->stream->setPosition(0);
+        $this->stream->setPosition(0);
 
-		while (!$valid_header && $this->stream->fp < $this->filesize)
-		{
-			$buffer = $this->stream->readBytes(4);
+        while (!$valid_header && $this->stream->fp < $this->filesize)
+        {
+            $buffer = $this->stream->readBytes(4);
 
-			if ($buffer == "BLP1")
-			{
-				// parse header
-				$this->compression	= $this->stream->readUInt32();
-				$this->flags		= $this->stream->readUInt32();
-				$this->width		= $this->stream->readUInt32();
-				$this->height		= $this->stream->readUInt32();
-				$this->type			= $this->stream->readUInt32();
-				$subtype 			= $this->stream->readUInt32();
+            if ($buffer == "BLP1")
+            {
+                // parse header
+                $this->compression  = $this->stream->readUInt32();
+                $this->flags        = $this->stream->readUInt32();
+                $this->width        = $this->stream->readUInt32();
+                $this->height       = $this->stream->readUInt32();
+                $this->type         = $this->stream->readUInt32();
+                $subtype            = $this->stream->readUInt32();
 
-				// load mipmap data
-				$mipmaps = 0;
-				for($i=0; $i < 16; $i++)
-				{
-					$this->mipmapOffset[$i] = $this->stream->readUInt32();
-				}
+                // load mipmap data
+                $mipmaps = 0;
+                for($i=0; $i < 16; $i++)
+                {
+                    $this->mipmapOffset[$i] = $this->stream->readUInt32();
+                }
 
-				for($i=0; $i < 16; $i++)
-				{
-					$this->mipmapSize[$i] = $this->stream->readUInt32();
+                for($i=0; $i < 16; $i++)
+                {
+                    $this->mipmapSize[$i] = $this->stream->readUInt32();
 
-					if ($this->mipmapSize[$i] > 0)
-					{
-						$mipmaps += 1;
-					}
-				}
+                    if ($this->mipmapSize[$i] > 0)
+                    {
+                        $mipmaps += 1;
+                    }
+                }
 
-				// check if jpeg or palleted blp
-				switch($this->compression)
-				{
-					default:
-					case '0': // jpeg
-						$jpeg_start			= $this->stream->fp;
-						$jpeg_header_size	= $this->stream->readUInt32();
-						$jpeg_header		= $this->stream->readBytes($jpeg_header_size);
+                // check if jpeg or palleted blp
+                switch($this->compression)
+                {
+                    default:
+                    case '0': // jpeg
+                        $jpeg_start         = $this->stream->fp;
+                        $jpeg_header_size   = $this->stream->readUInt32();
+                        $jpeg_header        = $this->stream->readBytes($jpeg_header_size);
 
-						$this->stream->setPosition($this->mipmapOffset[0]);
-						$this->imageData = $this->stream->readBytes($this->mipmapSize[0]);
+                        $this->stream->setPosition($this->mipmapOffset[0]);
+                        $this->imageData = $this->stream->readBytes($this->mipmapSize[0]);
 
-						$this->image = new Imagick();
-						$this->image->readImageBlob($jpeg_header . $this->imageData);
-						$this->image->transformImageColorspace(Imagick::COLORSPACE_SRGB);
-						$this->image = BLPImage::BGR2RGB($this->image); // swap red and blue
+                        $this->image = new Imagick();
+                        $this->image->readImageBlob($jpeg_header . $this->imageData);
+                        $this->image->transformImageColorspace(Imagick::COLORSPACE_SRGB);
+                        $this->image = BLPImage::BGR2RGB($this->image); // swap red and blue
 
-						break;
+                        break;
 
-					case '1': // palleted
-						$colors = array();
+                    case '1': // palleted
+                        $colors = array();
 
-						if ($this->type < 3 || $this->type > 5)
-						{
-							throw new Exception('Unknown picture type ' . $this->type . '.');
-						}
+                        if ($this->type < 3 || $this->type > 5)
+                        {
+                            throw new Exception('Unknown picture type ' . $this->type . '.');
+                        }
 
-						$im = imagecreate($this->width, $this->height);
+                        $im = imagecreate($this->width, $this->height);
 
-						// read color pallete (BGR)
-						for($i=0; $i<256; $i++)
-						{
-							$b = $this->stream->readInt();
-							$g = $this->stream->readInt();
-							$r = $this->stream->readInt();
-							$a = $this->stream->readInt();
+                        // read color pallete (BGR)
+                        for($i=0; $i<256; $i++)
+                        {
+                            $b = $this->stream->readInt();
+                            $g = $this->stream->readInt();
+                            $r = $this->stream->readInt();
+                            $a = $this->stream->readInt();
 
-							// store it (RGB)
-							$colors[] = imagecolorallocate($im, $r, $g, $b);
-						}
+                            // store it (RGB)
+                            $colors[] = imagecolorallocate($im, $r, $g, $b);
+                        }
 
-						// store pixel color data
-						$index_list = array();
-						$alpha_list = array();
+                        // store pixel color data
+                        $index_list = array();
+                        $alpha_list = array();
 
-						$size = $this->width * $this->height;
+                        $size = $this->width * $this->height;
 
-						for($i=0; $i<$size; $i++)
-						{
-							$index_list[] = $this->stream->readInt();
-						}
+                        for($i=0; $i<$size; $i++)
+                        {
+                            $index_list[] = $this->stream->readInt();
+                        }
 
-						if ($this->type == 5)
-						{
-							for($i=0; $i<$size; $i++)
-							{
-								$alpha_list[] = $this->stream->readInt();
-							}
-						}
+                        if ($this->type == 5)
+                        {
+                            for($i=0; $i<$size; $i++)
+                            {
+                                $alpha_list[] = $this->stream->readInt();
+                            }
+                        }
 
-						// write color data to image
-						$width  = $this->width;
-						$height = $this->height;
-						$color_index = 0;
+                        // write color data to image
+                        $width  = $this->width;
+                        $height = $this->height;
+                        $color_index = 0;
 
-						for ($y = 1; $y < $height; $y++)
-						{
-						    for ($x = 0; $x < $width; $x++)
-						    {
-						    	$color_index += 1;
+                        for ($y = 1; $y < $height; $y++)
+                        {
+                            for ($x = 0; $x < $width; $x++)
+                            {
+                                $color_index += 1;
 
-						        imagesetpixel($im, $x, $y, $colors[$index_list[$color_index]]);
-						    }
-						}
+                                imagesetpixel($im, $x, $y, $colors[$index_list[$color_index]]);
+                            }
+                        }
 
-						// create a temporary file which we can pass to imagick.
-						$temp_file = tempnam(sys_get_temp_dir(), 'blp');
-						imagepng($im, $temp_file);
+                        // create a temporary file which we can pass to imagick.
+                        $temp_file = tempnam(sys_get_temp_dir(), 'blp');
+                        imagepng($im, $temp_file);
 
-						$this->image = new Imagick($temp_file);
-						
-						imagedestroy($im);
-						unlink($temp_file);
+                        $this->image = new Imagick($temp_file);
+                        
+                        imagedestroy($im);
+                        unlink($temp_file);
 
-						break;
+                        break;
 
-				}
+                }
 
-				$valid_header = true;
-			}
-		}
+                $valid_header = true;
+            }
+        }
 
-		return $valid_header;
-	}
+        return $valid_header;
+    }
 
-	private static function BGR2RGB($image) {
-	    $red = clone $image;
-	    $red->separateImageChannel(Imagick::CHANNEL_BLUE);
+    private static function BGR2RGB($image) {
+        $red = clone $image;
+        $red->separateImageChannel(Imagick::CHANNEL_BLUE);
 
-	    $green = clone $image;
-	    $green->separateImageChannel(Imagick::CHANNEL_GREEN);
+        $green = clone $image;
+        $green->separateImageChannel(Imagick::CHANNEL_GREEN);
 
-	    $red->compositeImage($green, Imagick::COMPOSITE_COPYGREEN, 0, 0);
+        $red->compositeImage($green, Imagick::COMPOSITE_COPYGREEN, 0, 0);
 
-	    $green = null;
+        $green = null;
 
-	    $blue = clone $image;
-	    $blue->separateImageChannel(Imagick::CHANNEL_RED);
+        $blue = clone $image;
+        $blue->separateImageChannel(Imagick::CHANNEL_RED);
 
-	    $red->compositeImage($blue, Imagick::COMPOSITE_COPYBLUE, 0, 0);
+        $red->compositeImage($blue, Imagick::COMPOSITE_COPYBLUE, 0, 0);
 
-	    return $red;
-	}
+        return $red;
+    }
 
 }
 
