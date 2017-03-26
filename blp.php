@@ -5,11 +5,17 @@
 
 require_once __DIR__ . '/blp.reader.php';
 
+// constants
+const MAGIC_BLP_V1          = "BLP1";
+const BLP_COMPRESSION_JPEG  = 0;
+const BLP_COMPRESSION_NONE  = 1;
+
 class BLPImage
 {
 
     private $filename, $file, $filesize, $stream;
-    private $compression, $flags, $width, $height, $type, $mipmapOffset, $mipmapSize;
+    private $compression, $flags, $width, $height, $type;
+    private $mipmapOffset, $mipmapSize, $hasMipmaps;
     private $image, $imageData;
 
     function __construct($path)
@@ -35,16 +41,18 @@ class BLPImage
         $this->close();
     }
 
-    function close() 
+    public function close() 
     {
         if ($this->file && get_resource_type($this->file) == 'stream') fclose($this->file); 
         if ($this->image) $this->image->clear();
     }
 
-    function image()
-    {
-        return $this->image;
-    }
+    public function image(){ return $this->image; }
+    public function width(){ return $this->width; }
+    public function height(){ return $this->width; }
+    public function hasMipmaps(){ return $this->hasMipmaps; }
+    public function filename(){ return $this->filename; }
+    public function filesize(){ return $this->filesize; }
 
     private function parseHeader()
     {
@@ -56,7 +64,7 @@ class BLPImage
         {
             $buffer = $this->stream->readBytes(4);
 
-            if ($buffer == "BLP1")
+            if ($buffer == MAGIC_BLP_V1)
             {
                 // parse header
                 $this->compression  = $this->stream->readUInt32();
@@ -64,10 +72,11 @@ class BLPImage
                 $this->width        = $this->stream->readUInt32();
                 $this->height       = $this->stream->readUInt32();
                 $this->type         = $this->stream->readUInt32();
-                $subtype            = $this->stream->readUInt32();
+                $this->hasMipmaps   = $this->stream->readUInt32();
 
                 // load mipmap data
                 $mipmaps = 0;
+
                 for($i=0; $i < 16; $i++)
                 {
                     $this->mipmapOffset[$i] = $this->stream->readUInt32();
@@ -78,20 +87,20 @@ class BLPImage
                     $this->mipmapSize[$i] = $this->stream->readUInt32();
 
                     if ($this->mipmapSize[$i] > 0)
-                    {
                         $mipmaps += 1;
-                    }
                 }
 
                 // check if jpeg or palleted blp
                 switch($this->compression)
                 {
                     default:
-                    case '0': // jpeg
+                    case BLP_COMPRESSION_JPEG: // jpeg
                         $jpeg_start         = $this->stream->fp;
                         $jpeg_header_size   = $this->stream->readUInt32();
+                        $jpeg_header_max    = $this->filesize - $this->stream->fp;
+                        $jpeg_header_size   = ($jpeg_header_size > $jpeg_header_max ? $jpeg_header_max : $jpeg_header_size);
                         $jpeg_header        = $this->stream->readBytes($jpeg_header_size);
-
+                        
                         $this->stream->setPosition($this->mipmapOffset[0]);
                         $this->imageData = $this->stream->readBytes($this->mipmapSize[0]);
 
@@ -102,7 +111,7 @@ class BLPImage
 
                         break;
 
-                    case '1': // palleted
+                    case BLP_COMPRESSION_NONE: // palleted
                         $colors = array();
 
                         if ($this->type < 3 || $this->type > 5)
@@ -139,7 +148,8 @@ class BLPImage
                         {
                             for($i=0; $i<$size; $i++)
                             {
-                                $alpha_list[] = $this->stream->readInt();
+                                $a = $this->stream->readInt();
+                                $alpha_list[] = $a;
                             }
                         }
 
@@ -179,6 +189,9 @@ class BLPImage
     }
 
     private static function BGR2RGB($image) {
+        $test = clone $image;
+        $test->separateImageChannel(Imagick::CHANNEL_ALPHA);
+
         $red = clone $image;
         $red->separateImageChannel(Imagick::CHANNEL_BLUE);
 
