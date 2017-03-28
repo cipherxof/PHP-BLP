@@ -15,9 +15,10 @@ Example Usage
 require 'blp.php';
 
 try {
-    $file = 'bin/war3mapMap.blp';
-    $blpfile = new BLPImage($file);
-   
+    $fname = 'bin/war3mapMap.blp';
+    $blpfile = new BLPImage($fname);
+    
+    // get imagick handle
     $image = $blpfile->image();
 
     // convert to jpeg
@@ -43,3 +44,6 @@ try {
 
 ?>
 ```
+==========
+
+Thanks to [Dr Super Good](https://github.com/DrSuperGood) for help with bug fixes.
