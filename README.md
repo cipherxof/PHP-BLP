@@ -4,7 +4,8 @@ Blizzard BLP Image File Parser for PHP.
 Requires [GD](http://php.net/manual/en/book.image.php) & [ImageMagick](http://php.net/manual/en/book.imagick.php).
 
 Currently supported:
-* BLP1
+* BLP0 (Reign of Chaos Beta)
+* BLP1 (All other War3 versions)
 
 Example Usage
 ==========
@@ -44,6 +45,5 @@ try {
 
 ?>
 ```
-==========
 
-Thanks to [Dr Super Good](https://github.com/DrSuperGood) for help with bug fixes.
+Thanks to [Dr Super Good](https://github.com/DrSuperGood) for his [BLP Specifications](https://www.hiveworkshop.com/threads/blp-specifications-wc3.279306/) and help with bug fixes.

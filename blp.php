@@ -5,7 +5,9 @@
 require_once __DIR__ . '/blp.reader.php';
 
 // constants
+const MAGIC_BLP_V0          = "BLP0";
 const MAGIC_BLP_V1          = "BLP1";
+const MAGIC_BLP_V2          = "BLP2";
 
 const BLP_COMPRESSION_JPEG  = 0;
 const BLP_COMPRESSION_NONE  = 1;
@@ -55,8 +57,13 @@ class BLPImage
     public function filename(){ return $this->filename; }
     public function filesize(){ return $this->filesize; }
 
-    public function saveAs($filename, $filetype)
+    public function saveAs($filename, $filetype=null)
     {
+        if ($filetype == null)
+        {
+            $filetype = pathinfo($filename, PATHINFO_EXTENSION);
+        }
+
         $this->image->setImageFormat($filetype);
         $this->image->writeImage($filename);
     }
@@ -70,129 +77,144 @@ class BLPImage
         {
             $buffer = $this->stream->readBytes(4);
 
+            if ($buffer == MAGIC_BLP_V2)
+            {
+                throw new Exception("BLP2 files are not supported.");
+            }
+
+            if ($buffer != MAGIC_BLP_V0 && $buffer != MAGIC_BLP_V1)
+            {
+                continue;
+            }
+
+            // parse header
+            $this->compression  = $this->stream->readUInt32();
+            $this->alphabits    = $this->stream->readUInt32();
+            $this->width        = $this->stream->readUInt32();
+            $this->height       = $this->stream->readUInt32();
+            $this->type         = $this->stream->readUInt32();
+            $this->hasMipmaps   = $this->stream->readUInt32();
+
+            // alphabit is either 1, 4, or 8 otherwise 0 is assumed.
+            if ($this->alphabits != 0 && $this->alphabits != 1 && $this->alphabits != 4 && $this->alphabits != 8)
+                $this->alphabits = 0;
+
+            // load mipmap data
             if ($buffer == MAGIC_BLP_V1)
             {
-                // parse header
-                $this->compression  = $this->stream->readUInt32();
-                $this->alphabits    = $this->stream->readUInt32();
-                $this->width        = $this->stream->readUInt32();
-                $this->height       = $this->stream->readUInt32();
-                $this->type         = $this->stream->readUInt32();
-                $this->hasMipmaps   = $this->stream->readUInt32();
-
-                // alphabit is either 1, 4, 8 or zero is assumed.
-                if ($this->alphabits != 0 && $this->alphabits != 1 && $this->alphabits != 4 && $this->alphabits != 8)
-                    $this->alphabits = 0;
-
-                // load mipmap data
-                $mipmaps = 0;
-
                 for($i=0; $i < 16; $i++)
-                {
                     $this->mipmapOffset[$i] = $this->stream->readUInt32();
-                }
 
                 for($i=0; $i < 16; $i++)
-                {
                     $this->mipmapSize[$i] = $this->stream->readUInt32();
+            }
+            else
+            {
+                $info  = pathinfo($this->filename);
+                $name  = basename($info['basename'],'.'.$info['extension']);
+                $dir   = $info['dirname'];
+                $fname = "$dir/$name.b00";
 
-                    if ($this->mipmapSize[$i] > 0) 
-                    {
-                        $mipmaps += 1;
-                    }
+                if (!file_exists($fname))
+                {
+                    throw new Exception("BLP0 image is missg a mipmap file.");
                 }
 
-                // check if jpeg or palleted blp
-                switch($this->compression)
-                {
-                    default:
-                    case BLP_COMPRESSION_JPEG: // jpeg
-                        // read jpeg header
-                        $jpeg_start         = $this->stream->fp;
-                        $jpeg_header_size   = $this->stream->readUInt32();
+                $this->imageData = file_get_contents($fname);
+            }
 
-                        if ($jpeg_header_size > BLP_JPEG_HEADER_SIZE || $jpeg_header_size > ($this->filesize - $this->stream->fp))
-                        {
-                            trigger_error("BLPImage: Unsafe header size ($jpeg_header_size).", E_USER_WARNING);
-                        }
+            // check if jpeg or palleted blp
+            switch($this->compression)
+            {
+                default:
+                case BLP_COMPRESSION_JPEG: // jpeg
+                    // read jpeg header
+                    $jpeg_start         = $this->stream->fp;
+                    $jpeg_header_size   = $this->stream->readUInt32();
 
-                        $jpeg_header = $this->stream->readBytes($jpeg_header_size);
+                    if ($jpeg_header_size > BLP_JPEG_HEADER_SIZE || $jpeg_header_size > ($this->filesize - $this->stream->fp))
+                    {
+                        trigger_error("BLPImage: Unsafe header size ($jpeg_header_size).", E_USER_WARNING);
+                    }
 
-                        // read first mipmap
+                    $jpeg_header = $this->stream->readBytes($jpeg_header_size);
+
+                    // read first mipmap
+                    if ($buffer == MAGIC_BLP_V1)
+                    {
                         $this->stream->setPosition($this->mipmapOffset[0]);
                         $this->imageData = $this->stream->readBytes($this->mipmapSize[0]);
-                        $jpeg = $jpeg_header . $this->imageData;
+                    }
 
-                        $this->image = new Imagick();
-                        $this->image->readImageBlob($jpeg);
-                        $this->image->setColorspace(Imagick::COLORSPACE_SRGB);
-                            
-                        $this->rebuildWithoutAlpha(); // remove alpha channel
-                        $this->image = BLPImage::BGR2RGB($this->image); // swap red and blue
+                    $this->image = new Imagick();
+                    $this->image->readImageBlob($jpeg_header . $this->imageData);
+                    $this->image->setColorspace(Imagick::COLORSPACE_SRGB);
+                        
+                    $this->rebuildWithoutAlpha(); // remove alpha channel
+                    $this->image = BLPImage::BGR2RGB($this->image); // swap red and blue
 
-   
-                        break;
-                    case BLP_COMPRESSION_NONE: // palleted
-                        $colors = array();
+                    break;
+                case BLP_COMPRESSION_NONE: // palleted
+                    $colors = array();
 
-                        $im = imagecreate($this->width, $this->height);
+                    $im = imagecreate($this->width, $this->height);
 
-                        // read color pallete (BGR)
-                        for($i=0; $i<256; $i++)
-                        {
-                            $b = $this->stream->readInt();
-                            $g = $this->stream->readInt();
-                            $r = $this->stream->readInt();
-                            $a = $this->stream->readInt();
+                    // read color pallete (BGR)
+                    for($i=0; $i<256; $i++)
+                    {
+                        $b = $this->stream->readInt();
+                        $g = $this->stream->readInt();
+                        $r = $this->stream->readInt();
+                        $a = $this->stream->readInt();
 
-                            // store it (RGB)
-                            $colors[] = imagecolorallocate($im, $r, $g, $b);
-                        }
+                        // store it (RGB)
+                        $colors[] = imagecolorallocate($im, $r, $g, $b);
+                    }
 
-                        // store pixel color data
-                        $index_list = array();
-                        $alpha_list = array();
-                        $size = $this->width * $this->height;
+                    // store pixel color data
+                    $index_list = array();
+                    $alpha_list = array();
 
+                    $size = $this->width * $this->height;
+
+                    for($i=0; $i<$size; $i++)
+                    {
+                        $index_list[] = $this->stream->readInt();
+                    }
+
+                    if ($this->alphabits == 8)
+                    {
                         for($i=0; $i<$size; $i++)
                         {
-                            $index_list[] = $this->stream->readInt();
+                            $alpha_list[] = $this->stream->readInt();
                         }
+                    }
 
-                        if ($this->alphabits == 8)
+                    // write color data to image
+                    $width  = $this->width;
+                    $height = $this->height;
+                    $color_index = 0;
+
+                    for ($y = 1; $y < $height; $y++)
+                    {
+                        for ($x = 0; $x < $width; $x++)
                         {
-                            for($i=0; $i<$size; $i++)
-                            {
-                                $alpha_list[] = $this->stream->readInt();
-                            }
+                            $color_index += 1;
+                            imagesetpixel($im, $x, $y, $colors[$index_list[$color_index]]);
                         }
+                    }
 
-                        // write color data to image
-                        $width  = $this->width;
-                        $height = $this->height;
-                        $color_index = 0;
-
-                        for ($y = 1; $y < $height; $y++)
-                        {
-                            for ($x = 0; $x < $width; $x++)
-                            {
-                                $color_index += 1;
-                                imagesetpixel($im, $x, $y, $colors[$index_list[$color_index]]);
-                            }
-                        }
-
-                        // create a temporary file which we can pass to imagick.
-                        $temp_file = tempnam(sys_get_temp_dir(), 'blp');
-                        imagepng($im, $temp_file);
-                        $this->image = new Imagick($temp_file);
-                        
-                        imagedestroy($im);
-                        unlink($temp_file);
-                        break;
-                }
-
-                $valid_header = true;
+                    // create a temporary file which we can pass to imagick.
+                    $temp_file = tempnam(sys_get_temp_dir(), 'blp');
+                    imagepng($im, $temp_file);
+                    $this->image = new Imagick($temp_file);
+                    
+                    imagedestroy($im);
+                    unlink($temp_file);
+                    break;
             }
+
+            $valid_header = true;
         }
 
         return $valid_header;
