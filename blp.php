@@ -17,7 +17,7 @@ const BLP_JPEG_HEADER_SIZE  = 624;
 class BLPImage
 {
     private $filename, $file, $filesize, $stream;
-    private $compression, $flags, $width, $height, $type;
+    private $compression, $flags, $width, $height, $type, $alphaBits;
     private $mipmapOffset, $mipmapSize, $hasMipmaps;
     private $image, $imageData;
 
@@ -89,15 +89,15 @@ class BLPImage
 
             // parse header
             $this->compression  = $this->stream->readUInt32();
-            $this->alphabits    = $this->stream->readUInt32();
+            $this->alphaBits    = $this->stream->readUInt32();
             $this->width        = $this->stream->readUInt32();
             $this->height       = $this->stream->readUInt32();
             $this->type         = $this->stream->readUInt32();
             $this->hasMipmaps   = $this->stream->readUInt32();
 
             // alphabit is either 1, 4, or 8 otherwise 0 is assumed.
-            if ($this->alphabits != 0 && $this->alphabits != 1 && $this->alphabits != 4 && $this->alphabits != 8)
-                $this->alphabits = 0;
+            if ($this->alphaBits != 0 && $this->alphaBits != 1 && $this->alphaBits != 4 && $this->alphaBits != 8)
+                $this->alphaBits = 0;
 
             // load mipmap data
             if ($buffer == MAGIC_BLP_V1)
@@ -156,7 +156,7 @@ class BLPImage
                     break;
                 case BLP_COMPRESSION_NONE: // palleted
                     $rgb = array();
-                    
+
                     $im = imagecreatetruecolor($this->width, $this->height);
                     imagealphablending($im, false);
                     imagesavealpha($im, true);
@@ -184,7 +184,7 @@ class BLPImage
                         $index_list[] = $this->stream->readInt();
                     }
 
-                    if ($this->alphabits == 8)
+                    if ($this->alphaBits == 8)
                     {
                         for($i=0; $i<$size; $i++)
                         {

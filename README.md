@@ -7,7 +7,23 @@ Currently supported:
 * BLP0 (Reign of Chaos Beta)
 * BLP1 (All other War3 versions)
 
-Example Usage
+Basic Example
+==========
+
+```php
+<?php
+
+require 'blp.php';
+
+$blp_image = new BLPImage('war3mapMap.blp');
+
+$blp_image->saveAs("war3mapMap.png");
+$blp_image->saveAs("war3mapMap.jpg");
+
+?>
+```
+
+Advanced Example
 ==========
 
 ```php
@@ -16,7 +32,7 @@ Example Usage
 require 'blp.php';
 
 try {
-    $fname = 'bin/war3mapMap.blp';
+    $fname = 'war3mapMap.blp';
     $blpfile = new BLPImage($fname);
     
     // get imagick handle
@@ -24,18 +40,17 @@ try {
 
     // convert to jpeg
     $image->setImageFormat("jpeg");
-    $image->writeImage('bin/output.jpg');
+    $image->writeImage('output.jpg');
 
     // convert to png
     $image->setImageFormat("png");
-    $image->writeImage('bin/output.png');
+    $image->writeImage('output.png');
 
     // display the image
     header("Content-Type: image/png");
     echo $image->getImageBlob();
 
     $blpfile->close();
-
 
 } catch (Exception $e) {
     echo 'BLPImage Exception: ',  $e->getMessage(), "\n";
