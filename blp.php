@@ -117,7 +117,7 @@ class BLPImage
 
                 if (!file_exists($fname))
                 {
-                    throw new Exception("BLP0 image is missg a mipmap file.");
+                    throw new Exception("BLP0 image is missing a mipmap file.");
                 }
 
                 $this->imageData = file_get_contents($fname);
@@ -155,9 +155,11 @@ class BLPImage
 
                     break;
                 case BLP_COMPRESSION_NONE: // palleted
-                    $colors = array();
-
-                    $im = imagecreate($this->width, $this->height);
+                    $rgb = array();
+                    
+                    $im = imagecreatetruecolor($this->width, $this->height);
+                    imagealphablending($im, false);
+                    imagesavealpha($im, true);
 
                     // read color pallete (BGR)
                     for($i=0; $i<256; $i++)
@@ -168,7 +170,7 @@ class BLPImage
                         $a = $this->stream->readInt();
 
                         // store it (RGB)
-                        $colors[] = imagecolorallocate($im, $r, $g, $b);
+                        $rgb[] = array($r, $g, $b);
                     }
 
                     // store pixel color data
@@ -200,7 +202,16 @@ class BLPImage
                         for ($x = 0; $x < $width; $x++)
                         {
                             $color_index += 1;
-                            imagesetpixel($im, $x, $y, $colors[$index_list[$color_index]]);
+
+                            // calculate alpha
+                            $alpha = $alpha_list[$color_index];
+                            $alpha = 127-(127*($alpha/255));
+
+                            // create color with correct transparency
+                            $value = $rgb[$index_list[$color_index]];
+                            $color = imagecolorallocatealpha($im, $value[0], $value[1], $value[2], $alpha);
+
+                            imagesetpixel($im, $x, $y, $color);
                         }
                     }
 
