@@ -33,7 +33,7 @@ class BLPImage
         $this->file = fopen($path, 'rb');
         $this->stream = new BLPReader($this->file);
 
-        if (!$this->parseHeader())
+        if (!$this->parse())
         {
             throw new Exception('Invalid image header.');
         }
@@ -68,7 +68,8 @@ class BLPImage
         $this->image->writeImage($filename);
     }
 
-    private function parseHeader()
+
+    private function parse()
     {
         $valid_header = false;
         $this->stream->setPosition(0);
@@ -78,26 +79,25 @@ class BLPImage
             $buffer = $this->stream->readBytes(4);
 
             if ($buffer == MAGIC_BLP_V2)
-            {
                 throw new Exception("BLP2 files are not supported.");
-            }
 
             if ($buffer != MAGIC_BLP_V0 && $buffer != MAGIC_BLP_V1)
-            {
                 continue;
-            }
 
             // parse header
-            $this->compression  = $this->stream->readUInt32();
-            $this->alphaBits    = $this->stream->readUInt32();
-            $this->width        = $this->stream->readUInt32();
-            $this->height       = $this->stream->readUInt32();
-            $this->type         = $this->stream->readUInt32();
-            $this->hasMipmaps   = $this->stream->readUInt32();
+            $this->compression = $this->stream->readUInt32();
+            $this->alphaBits   = $this->stream->readUInt32();
+            $this->width       = $this->stream->readUInt32();
+            $this->height      = $this->stream->readUInt32();
+            $this->type        = $this->stream->readUInt32();
+            $this->hasMipmaps  = $this->stream->readUInt32();
 
             // alphabit is either 1, 4, or 8 otherwise 0 is assumed.
             if ($this->alphaBits != 0 && $this->alphaBits != 1 && $this->alphaBits != 4 && $this->alphaBits != 8)
+            {
+                trigger_error("BLPImage: alphaBits is $this->alphaBits (expected 0, 1, 4 or 8), defaulting to 0.", E_USER_WARNING);
                 $this->alphaBits = 0;
+            }
 
             // load mipmap data
             if ($buffer == MAGIC_BLP_V1)
@@ -128,14 +128,16 @@ class BLPImage
             {
                 default:
                 case BLP_COMPRESSION_JPEG: // jpeg
+
                     // read jpeg header
                     $jpeg_start         = $this->stream->fp;
                     $jpeg_header_size   = $this->stream->readUInt32();
 
                     if ($jpeg_header_size > BLP_JPEG_HEADER_SIZE || $jpeg_header_size > ($this->filesize - $this->stream->fp))
-                    {
                         trigger_error("BLPImage: Unsafe header size ($jpeg_header_size).", E_USER_WARNING);
-                    }
+
+                    if ($this->alphaBits != 0 and $this->alphaBits != 8)
+                        trigger_error("BLPImage: alphaBits is $this->alphaBits (expected 0 or 8)", E_USER_WARNING);
 
                     $jpeg_header = $this->stream->readBytes($jpeg_header_size);
 
@@ -149,7 +151,7 @@ class BLPImage
                     $this->image = new Imagick();
                     $this->image->readImageBlob($jpeg_header . $this->imageData);
                     $this->image->setColorspace(Imagick::COLORSPACE_SRGB);
-                        
+                    
                     $this->rebuildWithoutAlpha(); // remove alpha channel
                     $this->image = BLPImage::BGR2RGB($this->image); // swap red and blue
 
@@ -173,6 +175,8 @@ class BLPImage
                         $rgb[] = array($r, $g, $b);
                     }
 
+                    $this->stream->setPosition($this->mipmapOffset[0]);
+
                     // store pixel color data
                     $index_list = array();
                     $alpha_list = array();
@@ -184,7 +188,7 @@ class BLPImage
                         $index_list[] = $this->stream->readInt();
                     }
 
-                    if ($this->alphaBits == 8)
+                    if ($this->alphaBits > 0)
                     {
                         for($i=0; $i<$size; $i++)
                         {
@@ -192,36 +196,54 @@ class BLPImage
                         }
                     }
 
-                    // write color data to image
+                    // write pixel data to image
                     $width  = $this->width;
                     $height = $this->height;
                     $color_index = 0;
 
-                    for ($y = 1; $y < $height; $y++)
+                    for ($y = 0; $y < $height; ++$y)
                     {
-                        for ($x = 0; $x < $width; $x++)
+                        for ($x = 0; $x < $width; ++$x)
                         {
-                            $color_index += 1;
+                            $value = $rgb[$index_list[$color_index]];
 
                             // calculate alpha
-                            $alpha = $alpha_list[$color_index];
-                            $alpha = 127-(127*($alpha/255));
+                            switch ($this->alphaBits) 
+                            {
+                                case 8:
+                                    $alpha = $alpha_list[$color_index];
+                                    break;
 
-                            // create color with correct transparency
-                            $value = $rgb[$index_list[$color_index]];
-                            $color = imagecolorallocatealpha($im, $value[0], $value[1], $value[2], $alpha);
+                                case 4:
+                                    $alpha = $color_index % 2 ? $alpha_list[$color_index] >> 4 : $alpha_list[$color_index] & 0b00001111;
 
+                                    break;
+
+                                case 1:
+                                    $alpha = $alpha_list[$color_index / 8] & (1 << ($color_index % 8));
+
+                                    break;
+                                
+                                default:
+                                    $alpha = 255;
+                                    break;
+                            }
+
+                            $color = imagecolorallocatealpha($im, $value[0], $value[1], $value[2], 127-(127*($alpha/255)));
                             imagesetpixel($im, $x, $y, $color);
+
+                            ++$color_index;
                         }
                     }
 
-                    // create a temporary file which we can pass to imagick.
-                    $temp_file = tempnam(sys_get_temp_dir(), 'blp');
-                    imagepng($im, $temp_file);
-                    $this->image = new Imagick($temp_file);
-                    
+                    // create Imagick object from GD image
+                    ob_start(); 
+                    imagepng($im);
+                    $blob = ob_get_clean();
                     imagedestroy($im);
-                    unlink($temp_file);
+                    $this->image = new Imagick();
+                    $this->image->readImageBlob($blob);
+
                     break;
             }
 

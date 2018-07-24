@@ -20,7 +20,7 @@ class BLPReader
     public function setPosition($fp) 
     {
         $this->fp = $fp;
-        fseek($this->file, $fp);
+        fseek($this->file, $fp, SEEK_SET);
     }
 
     public function readByte() 
@@ -39,26 +39,17 @@ class BLPReader
 
     public function readInt() 
     {
-        $tmp = unpack("C*", $this->readByte());
-        $this->fp += 1;
-
-        return $tmp[1];
+        return unpack("C*", $this->readByte())[1];
     }
 
     public function readUInt8() 
     {
-        $tmp = unpack("c", $this->readByte());
-        $this->fp += 1;
-
-        return $tmp[1];
+        return unpack("c", $this->readByte())[1];
     }
 
     public function readUInt32() 
     {
-        $tmp = unpack("V", $this->readBytes(4));
-        $this->fp += 4;
-
-        return $tmp[1];
+        return unpack("V", $this->readBytes(4))[1];
     }   
 
 }
